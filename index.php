@@ -1,76 +1,105 @@
 <?php
-// Avvia la sessione per memorizzare i calcoli
-session_start();
+// File SQLite
+$dbFile = 'db.sqlite';
 
-// Funzione per eseguire il calcolo
-function calcola($num1, $num2, $operatore) {
-    switch ($operatore) {
-        case '+':
-            return $num1 + $num2;
-        case '-':
-            return $num1 - $num2;
-        case '*':
-            return $num1 * $num2;
-        case '/':
-            if ($num2 == 0) {
-                return "Errore: divisione per zero!";
-            }
-            return $num1 / $num2;
-        default:
-            return "Operatore non valido!";
+try {
+    // Connessione al database SQLite
+    $db = new PDO("sqlite:$dbFile");
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+    // Creazione della tabella se non esiste
+    $createTableSQL = "
+        CREATE TABLE IF NOT EXISTS calculations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation TEXT NOT NULL,
+            result REAL NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    ";
+    $db->exec($createTableSQL);
+
+    // Variabili iniziali
+    $result = '';
+    $operation = '';
+
+    // Se è stato inviato il form
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        // Recupero i numeri e l'operazione dal form
+        $number1 = (float)$_POST['number1'];
+        $number2 = (float)$_POST['number2'];
+        $selectedOperation = $_POST['operation'];
+
+        // Calcolo del risultato
+        switch ($selectedOperation) {
+            case '+':
+                $result = $number1 + $number2;
+                break;
+            case '-':
+                $result = $number1 - $number2;
+                break;
+            case '*':
+                $result = $number1 * $number2;
+                break;
+            case '/':
+                $result = ($number2 != 0) ? $number1 / $number2 : 'Errore: Divisione per zero';
+                break;
+            default:
+                $result = 'Operazione non valida';
+        }
+
+        // Salvataggio dell'operazione nel database se il risultato è numerico
+        if (is_numeric($result)) {
+            $operation = "$number1 $selectedOperation $number2";
+            $insertSQL = "INSERT INTO calculations (operation, result) VALUES (:operation, :result)";
+            $stmt = $db->prepare($insertSQL);
+            $stmt->execute([':operation' => $operation, ':result' => $result]);
+        }
     }
-}
 
-// Controlla se sono stati inviati dati dal modulo
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    // Ottieni i numeri e l'operatore
-    $num1 = $_POST['num1'];
-    $num2 = $_POST['num2'];
-    $operatore = $_POST['operatore'];
+    // Recupero delle ultime 10 operazioni dal database
+    $history = $db->query("SELECT * FROM calculations ORDER BY created_at DESC LIMIT 10");
 
-    // Calcola il risultato
-    $risultato = calcola($num1, $num2, $operatore);
-
-    // Aggiungi il risultato alla sessione
-    $_SESSION['calcoli'][] = "$num1 $operatore $num2 = $risultato";
+} catch (PDOException $e) {
+    die("Errore di connessione al database: " . $e->getMessage());
 }
 ?>
 
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calcolatrice PHP</title>
+    <title>Calcolatrice con Storico</title>
 </head>
 <body>
-    <h1>Calcolatrice PHP</h1>
-    <form method="post" action="">
-        <input type="number" name="num1" placeholder="Primo numero" required>
-        <input type="number" name="num2" placeholder="Secondo numero" required>
-        <select name="operatore" required>
-            <option value="+">Somma</option>
-            <option value="-">Sottrazione</option>
-            <option value="*">Moltiplicazione</option>
-            <option value="/">Divisione</option>
+    <h1>Calcolatrice</h1>
+    <form method="POST">
+        <label for="number1">Primo numero:</label>
+        <input type="number" id="number1" name="number1" step="any" required>
+
+        <label for="operation">Operazione:</label>
+        <select id="operation" name="operation" required>
+            <option value="+">+</option>
+            <option value="-">-</option>
+            <option value="*">*</option>
+            <option value="/">/</option>
         </select>
+
+        <label for="number2">Secondo numero:</label>
+        <input type="number" id="number2" name="number2" step="any" required>
+
         <button type="submit">Calcola</button>
     </form>
 
-    <?php if (isset($risultato)): ?>
-        <h2>Risultato: <?= $risultato ?></h2>
+    <?php if ($result !== ''): ?>
+        <h2>Risultato: <?= htmlspecialchars($result) ?></h2>
     <?php endif; ?>
 
-    <h3>Calcoli precedenti:</h3>
-    <?php
-    // Mostra tutti i calcoli precedenti
-    if (isset($_SESSION['calcoli'])) {
-        foreach ($_SESSION['calcoli'] as $calcolo) {
-            echo "<p>$calcolo</p>";
-        }
-    }
-    ?>
-
-    <a href="">Fai un altro calcolo</a>
+    <h2>Storico delle Operazioni</h2>
+    <ul>
+        <?php foreach ($history as $row): ?>
+            <li><?= htmlspecialchars($row['operation']) ?> = <?= htmlspecialchars($row['result']) ?> (<?= $row['created_at'] ?>)</li>
+        <?php endforeach; ?>
+    </ul>
 </body>
 </html>
